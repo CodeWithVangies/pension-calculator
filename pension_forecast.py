@@ -360,7 +360,7 @@ def main():
     # ── Αρχική οθόνη (χωρίς PDF) ─────────────────────────────────────────────
     if not uploaded:
         st.markdown('<div class="big-title">🏛️ Υπολογιστής Σύνταξης Κοινωνικών Ασφαλίσεων</div>', unsafe_allow_html=True)
-        st.markdown('<div class="subtitle">Κύπρος · Νόμοι 2010–2024 · Μέθοδος Μ. Χρίστου</div>', unsafe_allow_html=True)
+        st.markdown('<div class="subtitle">Κύπρος · Νόμοι 2010–2024 >', unsafe_allow_html=True)
         st.markdown("""
         <div class="blue-box">
         <strong>Πώς λειτουργεί:</strong><br>
