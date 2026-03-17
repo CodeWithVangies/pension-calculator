@@ -92,6 +92,8 @@ def parse_pdf(uploaded_file) -> ExtractedData:
     data  = ExtractedData()
     notes = []
 
+    data.raw_text = ""
+
     try:
         with pdfplumber.open(uploaded_file) as pdf:
             full_text = ""
@@ -101,6 +103,7 @@ def parse_pdf(uploaded_file) -> ExtractedData:
                 tables = page.extract_tables()
                 if tables:
                     all_tables.extend(tables)
+        data.raw_text = full_text
 
         # Καθαρισμός κενών μέσα σε αριθμούς: "6 1,05" → "61,05"
         clean = re.sub(r'(\d)\s+(\d)', r'\1\2', full_text)
@@ -491,6 +494,10 @@ def main():
     notes_html = "<br>".join(extracted.parse_notes) if extracted.parse_notes else "—"
     st.markdown(f'<div class="parse-box">{notes_html}</div>', unsafe_allow_html=True)
 
+
+# ΠΡΟΣΩΡΙΝΟ DEBUG
+    with st.expander("🔍 Debug — Raw PDF Text"):
+        st.text(extracted.raw_text[:3000] if hasattr(extracted, 'raw_text') else "Δεν υπάρχει")
     # ── Αν δεν βρέθηκε έτος γέννησης → χειροκίνητη εισαγωγή ─────────────────
     extracted.birth_year = birth_year_input
 
