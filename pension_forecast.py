@@ -143,27 +143,42 @@ def parse_pdf(uploaded_file) -> ExtractedData:
         year_rows_found = 0
 
         # Ψάχνει γραμμές της μορφής: "1991  1,00  1.976"
+       # Ψάχνει ΟΛΑ τα ζεύγη "έτος μονάδες" στο κείμενο
+        # Η νέα μορφή έχει 2 έτη ανά γραμμή:
+        # "1991 1,00 1.976 2008 2,80 22.434"
         year_pattern = re.compile(
-            r'\b(19[7-9]\d|20\d{2})\b'   # Έτος
-            r'\s+([\d,\.]+)'               # Μονάδες
-            r'\s+([\d\.,]+)'               # Αποδοχές/Εισφορές
+            r'\b(19[89]\d|20\d{2})\b\s+'  # Έτος (1980-2029)
+            r'([\d]+[,\.][\d]+)'           # Μονάδες (π.χ. 1,00 ή 2,80)
         )
         matches = year_pattern.findall(clean)
 
         if matches:
-            for year_str, units_str, _ in matches:
+            for year_str, units_str in matches:
                 year = int(year_str)
-                if year < 1976 or year > 2030:
+                if year < 1981 or year > 2030:
                     continue
                 try:
                     units = float(units_str.replace(',', '.'))
                     if units <= 0 or units > 10:
                         continue
-                    # Βασικές: min(μονάδες, 1.0)
                     basic_total += min(units, 1.0)
-                    # Συμπληρωματικές: max(μονάδες - 1.0, 0)
                     supp_total  += max(units - 1.0, 0.0)
                     year_rows_found += 1
+                except:
+                    continue
+
+        # Μονάδες πριν 1981 (1976-1980)
+        pre_pattern = re.compile(
+            r'\b(197[6-9]|1980)\b\s+'
+            r'([\d]+[,\.][\d]+)'
+        )
+        pre_matches = pre_pattern.findall(clean)
+        if pre_matches:
+            for year_str, units_str in pre_matches:
+                try:
+                    units = float(units_str.replace(',', '.'))
+                    if 0 < units <= 2:
+                        pre1981_total += units
                 except:
                     continue
 
