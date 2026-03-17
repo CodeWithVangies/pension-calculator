@@ -82,10 +82,12 @@ class PensionResult:
 
 
 # ─── PDF Parsing ──────────────────────────────────────────────────────────────
+# ─── PDF Parsing ──────────────────────────────────────────────────────────────
 def parse_pdf(uploaded_file) -> ExtractedData:
     """
-    Εξάγει ΟΛΑ τα δεδομένα από το PDF συμπεριλαμβανομένου
-    του έτους γέννησης από το οποίο υπολογίζεται η ηλικία.
+    Εξάγει δεδομένα από PDF ασφαλιστικού λογαριασμού.
+    Υποστηρίζει ΚΑΙ τη νέα μορφή (eforms.eservices.cyprus.gov.cy)
+    ΚΑΙ την παλιά μορφή με 'Σύνολο Μονάδες'.
     """
     data  = ExtractedData()
     notes = []
@@ -93,105 +95,177 @@ def parse_pdf(uploaded_file) -> ExtractedData:
     try:
         with pdfplumber.open(uploaded_file) as pdf:
             full_text = ""
+            all_tables = []
             for page in pdf.pages:
                 full_text += (page.extract_text() or "") + "\n"
+                tables = page.extract_tables()
+                if tables:
+                    all_tables.extend(tables)
 
-        # ── 1. ΈΤΟΣ ΓΕΝΝΗΣΗΣ (κρίσιμο για τη λειτουργία) ────────────────────
+        # Καθαρισμός κενών μέσα σε αριθμούς: "6 1,05" → "61,05"
+        clean = re.sub(r'(\d)\s+(\d)', r'\1\2', full_text)
+
+        # ── 1. ΈΤΟΣ ΓΕΝΝΗΣΗΣ ──────────────────────────────────────────────────
         birth_patterns = [
-            # "γεννήθηκε την 1η Ιανουαρίου 1961"
-            r"γεννήθηκε[^0-9]*\d{1,2}[η\s]+(?:Ιανουαρίου|Φεβρουαρίου|Μαρτίου|Απριλίου|Μαΐου|Ιουνίου|Ιουλίου|Αυγούστου|Σεπτεμβρίου|Οκτωβρίου|Νοεμβρίου|Δεκεμβρίου)[^0-9]*(\d{4})",
-            # "γεννήθηκε 1/1/1961" ή "γεννήθηκε 1.1.1961"
-            r"γεννήθηκε[^0-9]*\d{1,2}[/\.]\d{1,2}[/\.](\d{4})",
-            # "γεννήθηκε ... 1961"
+            r"γεννήθηκε[^0-9]*\d{1,2}[η\s]+"
+            r"(?:Ιανουαρίου|Φεβρουαρίου|Μαρτίου|Απριλίου|Μαΐου|"
+            r"Ιουνίου|Ιουλίου|Αυγούστου|Σεπτεμβρίου|"
+            r"Οκτωβρίου|Νοεμβρίου|Δεκεμβρίου)[^0-9]*(\d{4})",
+            r"γεννήθηκε[^0-9]*\d{1,2}[/.]\d{1,2}[/.](\d{4})",
             r"γεννήθηκε[^0-9]*(\d{4})",
-            # Απλά αναζήτηση για 4ψήφιο έτος που ξεκινά με 19
-            r"\b(19[4-9]\d)\b",
         ]
+        month_names = {
+            'Ιανουαρίου':1,'Φεβρουαρίου':2,'Μαρτίου':3,
+            'Απριλίου':4,'Μαΐου':5,'Ιουνίου':6,
+            'Ιουλίου':7,'Αυγούστου':8,'Σεπτεμβρίου':9,
+            'Οκτωβρίου':10,'Νοεμβρίου':11,'Δεκεμβρίου':12,
+        }
         for pat in birth_patterns:
             m = re.search(pat, full_text, re.IGNORECASE)
             if m:
-                yr = int(m.group(1))
+                yr = int(m.group(1) if len(m.groups()) == 1 else m.groups()[-1])
                 if 1940 <= yr <= 2002:
                     data.birth_year = yr
-                    age = CURRENT_YEAR - yr
-                    notes.append(f"✅ Έτος γέννησης: **{yr}** → Ηλικία: **{age} ετών**")
+                    for name, num in month_names.items():
+                        if name in full_text:
+                            data.birth_month = num
+                            break
+                    notes.append(f"✅ Έτος γέννησης: {yr}")
                     break
 
-        if data.birth_year == 0:
-            notes.append("⚠️ Έτος γέννησης δεν βρέθηκε στο PDF — παρακαλώ εισάγετε χειροκίνητα")
+        # ── 2. ΜΟΝΑΔΕΣ — Προσπαθεί πρώτα τη νέα μορφή ───────────────────────
+        # Νέα μορφή: αθροίζει μονάδες από τον πίνακα
+        basic_total = 0.0
+        supp_total  = 0.0
+        year_rows_found = 0
 
-        # ── 2. Σύνολα μονάδων ─────────────────────────────────────────────────
-        for pat in [
-            r"[Μμ]ον[αά]δες\s+([\d,\.]+)\s+([\d,\.]+)",
-            r"[Ββ]ασικ[όο]\s+([\d,\.]+).*?[Σσ]υμπλ\w*\s+([\d,\.]+)",
-            r"[Σσ]ύνολο.*?([\d,\.]+)\s+([\d,\.]+)\s*$",
-        ]:
-            m = re.search(pat, full_text, re.MULTILINE)
-            if m:
-                v1 = float(m.group(1).replace(",", "."))
-                v2 = float(m.group(2).replace(",", "."))
-                if 1 < v1 < 60 and 1 < v2 < 250:
-                    data.basic_post_1980 = v1
-                    data.supp_units      = v2
-                    notes.append(f"✅ Βασικές μονάδες 1980+: **{v1}**")
-                    notes.append(f"✅ Συμπλ. μονάδες: **{v2}**")
-                    break
+        # Ψάχνει γραμμές της μορφής: "1991  1,00  1.976"
+        year_pattern = re.compile(
+            r'\b(19[7-9]\d|20\d{2})\b'   # Έτος
+            r'\s+([\d,\.]+)'               # Μονάδες
+            r'\s+([\d\.,]+)'               # Αποδοχές/Εισφορές
+        )
+        matches = year_pattern.findall(clean)
 
-        # ── 3. Μονάδες πριν 1981 ──────────────────────────────────────────────
-        for pat in [
-            r"[Σσ]ύνολο\s+([\d,\.]+)\s*εβδομάδες",
-            r"1980.*?[Σσ]ύνολο\s+([\d,\.]+)",
-        ]:
-            m = re.search(pat, full_text, re.IGNORECASE | re.DOTALL)
-            if m:
-                val = float(m.group(1).replace(",", "."))
-                data.basic_pre_1981 = round(val / 50, 2) if val > 10 else val
-                notes.append(f"✅ Μονάδες πριν 1981: **{data.basic_pre_1981}**")
-                break
-
-        if data.basic_pre_1981 == 0:
-            m = re.search(r"\b([3-6]\.[0-9]{2})\b", full_text)
-            if m:
-                v = float(m.group(1))
-                if 2.0 < v < 8.0:
-                    data.basic_pre_1981 = v
-                    notes.append(f"⚠️ Μονάδες πριν 1981 (εκτίμηση): {v}")
-
-        # ── 4. Τελευταίες αποδοχές ────────────────────────────────────────────
-        recent = []
-        for year in range(2024, 2018, -1):
-            m = re.search(rf"{year}[^0-9]*([\d\s\.]+)", full_text)
-            if m:
-                raw = m.group(1).replace(" ", "").replace(".", "")
+        if matches:
+            for year_str, units_str, _ in matches:
+                year = int(year_str)
+                if year < 1976 or year > 2030:
+                    continue
                 try:
-                    v = float(raw[:8])
-                    if 5_000 < v < 200_000:
-                        recent.append((year, v))
+                    units = float(units_str.replace(',', '.'))
+                    if units <= 0 or units > 10:
+                        continue
+                    # Βασικές: min(μονάδες, 1.0)
+                    basic_total += min(units, 1.0)
+                    # Συμπληρωματικές: max(μονάδες - 1.0, 0)
+                    supp_total  += max(units - 1.0, 0.0)
+                    year_rows_found += 1
                 except:
-                    pass
+                    continue
 
-        if recent:
-            recent.sort(key=lambda x: x[0], reverse=True)
-            data.last_earnings = recent[0][1]
-            notes.append(f"✅ Τελευταίες αποδοχές ({recent[0][0]}): **€{data.last_earnings:,.0f}**")
+        if year_rows_found > 0:
+            data.basic_post_1980 = round(basic_total, 2)
+            data.supp_units      = round(supp_total,  2)
+            notes.append(f"✅ Νέα μορφή — Έτη: {year_rows_found}")
+            notes.append(f"✅ Βασικές μονάδες: {data.basic_post_1980}")
+            notes.append(f"✅ Συμπλ. μονάδες: {data.supp_units}")
         else:
-            vals = [int(v) for v in re.findall(r"\b(\d{4,6})\b", full_text) if 10_000 < int(v) < 150_000]
-            data.last_earnings = float(max(vals)) if vals else 30_000
-            notes.append(f"⚠️ Αποδοχές (εκτίμηση): **€{data.last_earnings:,.0f}**")
+            # Παλιά μορφή: "Μονάδες 40.98 61,05"
+            tot = re.search(
+                r'[Μμ]ον[αά]δες\s+([\d,\.]+)\s+([\d,\.]+)', clean
+            )
+            if tot:
+                v1 = float(tot.group(1).replace(',', '.'))
+                v2 = float(tot.group(2).replace(',', '.'))
+                if 1 < v1 < 60:
+                    data.basic_post_1980 = v1
+                    notes.append(f"✅ Βασικές (παλιά μορφή): {v1}")
+                if 1 < v2 < 250:
+                    data.supp_units = v2
+                    notes.append(f"✅ Συμπλ. (παλιά μορφή): {v2}")
 
-        # ── 5. Χρόνια περιόδου αναφοράς ───────────────────────────────────────
-        for pat in [r"(\d+)[,\.](\d+)\s*χρόν", r"(\d+)\s*χρόνια"]:
-            m = re.search(pat, full_text, re.IGNORECASE)
+        # ── 3. ΜΟΝΑΔΕΣ ΠΡΙΝ 1981 ──────────────────────────────────────────────
+        # Νέα μορφή: αθροίζει τα έτη 1976-1980 από τον πίνακα
+        pre1981_total = 0.0
+        pre1981_pattern = re.compile(
+            r'\b(197[6-9]|1980)\b\s+([\d,\.]+)\s+([\d,\.]+)'
+        )
+        pre_matches = pre1981_pattern.findall(clean)
+
+        if pre_matches:
+            for year_str, units_str, _ in pre_matches:
+                try:
+                    units = float(units_str.replace(',', '.'))
+                    if 0 < units <= 2:
+                        pre1981_total += units
+                        # Αφαιρούμε από τις βασικές γιατί τις μετρήσαμε ήδη
+                        data.basic_post_1980 = max(
+                            0, data.basic_post_1980 - min(units, 1.0)
+                        )
+                        data.supp_units = max(
+                            0, data.supp_units - max(units - 1.0, 0)
+                        )
+                except:
+                    continue
+            if pre1981_total > 0:
+                data.basic_pre_1981 = round(pre1981_total, 2)
+                notes.append(f"✅ Μονάδες πριν 1981: {data.basic_pre_1981}")
+        else:
+            # Παλιά μορφή
+            pre = re.search(r'[Σσ]ύνολο\s+([\d,\.]+)\s+\d{4}', clean)
+            if pre:
+                val = float(pre.group(1).replace(',', '.'))
+                if 0 < val < 10:
+                    data.basic_pre_1981 = val
+                    notes.append(f"✅ Μονάδες πριν 1981 (παλιά): {val}")
+
+        # ── 4. ΤΕΛΕΥΤΑΙΕΣ ΑΠΟΔΟΧΕΣ ────────────────────────────────────────────
+        found_earnings = False
+        for year in range(2025, 2018, -1):
+            m = re.search(rf'\b{year}\b[^0-9]+([\d{{4,6}}])', clean)
             if m:
-                if len(m.groups()) == 2:
-                    data.ref_years_so_far = float(f"{m.group(1)}.{m.group(2)}")
-                else:
-                    data.ref_years_so_far = float(m.group(1))
-                notes.append(f"✅ Χρόνια αναφοράς: **{data.ref_years_so_far}**")
-                break
+                try:
+                    v = int(m.group(1).replace('.', '').replace(',', ''))
+                    if 5000 < v < 200000:
+                        data.last_earnings = float(v)
+                        notes.append(
+                            f"✅ Τελευταίες αποδοχές ({year}): "
+                            f"€{v:,.0f}"
+                        )
+                        found_earnings = True
+                        break
+                except:
+                    continue
+
+        if not found_earnings:
+            nums = [
+                int(x) for x in re.findall(r'\b(\d{5,6})\b', clean)
+                if 10000 < int(x) < 150000
+            ]
+            data.last_earnings = float(max(nums)) if nums else 30000.0
+            notes.append(f"⚠️ Αποδοχές (εκτίμηση): €{data.last_earnings:,.0f}")
+
+        # ── 5. ΠΕΡΙΟΔΟΣ ΑΝΑΦΟΡΑΣ ──────────────────────────────────────────────
+        if data.birth_year > 0:
+            ref_start = data.birth_year + 15.75  # Οκτ. έτους (birth+15)
+
+            # Τελευταίο έτος λογαριασμού από τον πίνακα
+            year_matches = [
+                int(y) for y in re.findall(r'\b(20\d{2})\b', clean)
+                if 2000 <= int(y) <= 2030
+            ]
+            last_year = max(year_matches) if year_matches else 2024
+            ref_end   = float(last_year) + 1.0  # 31/12 τελευταίου έτους
+
+            data.ref_years_so_far = round(ref_end - ref_start, 2)
+            notes.append(
+                f"✅ Περίοδος αναφοράς: {data.ref_years_so_far} χρόνια "
+                f"(έως {last_year})"
+            )
 
     except Exception as e:
-        notes.append(f"❌ Σφάλμα ανάγνωσης PDF: {str(e)}")
+        notes.append(f"❌ Σφάλμα: {str(e)}")
 
     data.parse_notes = notes
     return data
@@ -328,8 +402,25 @@ def main():
         uploaded = st.file_uploader(
             "📄 Ανεβάστε τον Ασφαλιστικό Λογαριασμό (PDF)",
             type=["pdf"],
-            help="Το έτος γέννησης και τα στοιχεία εξάγονται αυτόματα από το PDF"
+            help="Ανεβάστε το PDF από το eforms.eservices.cyprus.gov.cy"
         )
+
+        st.markdown("---")
+        st.subheader("👤 Στοιχεία Ασφαλισμένου")
+        birth_year_input = st.number_input(
+            "Έτος γέννησης",
+            min_value=1940,
+            max_value=2002,
+            value=1970,
+            step=1,
+            help="Εισάγετε το έτος γέννησής σας"
+        )
+        from datetime import datetime
+        current_age = datetime.now().year - birth_year_input
+        if current_age >= 63:
+            st.success(f"✅ Ηλικία: **{current_age} ετών** → Τρέχουσα Σύνταξη")
+        else:
+            st.info(f"🔮 Ηλικία: **{current_age} ετών** → Πρόβλεψη ({65 - current_age} χρόνια)")
 
         st.markdown("---")
 
@@ -360,7 +451,7 @@ def main():
     # ── Αρχική οθόνη (χωρίς PDF) ─────────────────────────────────────────────
     if not uploaded:
         st.markdown('<div class="big-title">🏛️ Υπολογιστής Σύνταξης Κοινωνικών Ασφαλίσεων</div>', unsafe_allow_html=True)
-        st.markdown('<div class="subtitle">Κύπρος · Νόμοι 2010–2024 >', unsafe_allow_html=True)
+        st.markdown('<div class="subtitle">Κύπρος · Νόμοι 2010–2024 · Μέθοδος Μ. Χρίστου</div>', unsafe_allow_html=True)
         st.markdown("""
         <div class="blue-box">
         <strong>Πώς λειτουργεί:</strong><br>
@@ -401,13 +492,7 @@ def main():
     st.markdown(f'<div class="parse-box">{notes_html}</div>', unsafe_allow_html=True)
 
     # ── Αν δεν βρέθηκε έτος γέννησης → χειροκίνητη εισαγωγή ─────────────────
-    if extracted.birth_year == 0:
-        st.warning("⚠️ Το έτος γέννησης δεν βρέθηκε στο PDF. Εισάγετε το χειροκίνητα:")
-        manual_year = st.number_input("Έτος γέννησης", min_value=1940, max_value=2002, value=1970, step=1)
-        if st.button("Εφαρμογή"):
-            extracted.birth_year = manual_year
-        else:
-            return
+    extracted.birth_year = birth_year_input
 
     # ── Αν δεν βρέθηκαν μονάδες → χειροκίνητη εισαγωγή ──────────────────────
     if extracted.total_basic == 0 and extracted.supp_units == 0:
@@ -612,7 +697,7 @@ def main():
     Από 1/1/2024: +3,89% βασική, +1,68% συμπλ.
     </div>
     """, unsafe_allow_html=True)
-    st.caption("Περί Κοινωνικών Ασφαλίσεων Νόμοι 2010–2024 · €201,57/μονάδα")
+    st.caption("Μέθοδος: Μ. Χρίστου · Περί Κοινωνικών Ασφαλίσεων Νόμοι 2010–2024 · €201,57/μονάδα")
 
 
 if __name__ == "__main__":
