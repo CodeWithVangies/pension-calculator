@@ -84,7 +84,7 @@ def calculate_pension(df_full: pd.DataFrame,
     suppl_total = float(df_full["Συμπλ."].sum())
 
     # Βασική σύνταξη
-    avg_basic       = basic_total / ref_yrs
+    avg_basic       = min(basic_total / ref_yrs, 1.0)
     weekly_basic    = REF_UNIT_VALUE * avg_basic * 0.60
     monthly_basic   = weekly_basic * (52 / 13)
 
