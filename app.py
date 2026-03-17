@@ -94,7 +94,7 @@ if uploaded_pdf is not None:
     st.success(f"✓ {parse_msg}")
 
     retire_date = date(dob.year + ret_age, dob.month, dob.day)
-    ref_start   = date(dob.year, 1, 1)
+    ref_start   = date(dob.year + 16, 1, 1)
     df_full     = build_projections(df_parsed, retire_date)
 
     st.markdown("**Ελέγξτε και διορθώστε τις μονάδες αν χρειαστεί.**  \n"
