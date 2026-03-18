@@ -8,7 +8,7 @@ from datetime import date
 import pandas as pd
 
 # Εβδομαδιαία αξία βασικής ασφαλιστικής μονάδας (2024)
-REF_UNIT_VALUE = 201.57
+REF_UNIT_VALUE = 220.76
 
 # Αναλογιστική μείωση ανά μήνα πρόωρης συνταξιοδότησης
 EARLY_REDUCTION_PER_MONTH = 0.005   # 0,5% / μήνα → 12% για 24 μήνες (63→65)
