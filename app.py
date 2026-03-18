@@ -93,9 +93,21 @@ if uploaded_pdf is not None:
 
     st.success(f"✓ {parse_msg}")
 
-    retire_date = date(dob.year + ret_age, dob.month, dob.day)
-    ref_start   = date(dob.year + 16, 1, 1)
-    df_full     = build_projections(df_parsed, retire_date)
+    retire_date  = date(dob.year + ret_age, dob.month, dob.day)
+    ref_start    = date(dob.year + 16, 1, 1)
+    ref_start_yr = ref_start.year
+
+    # Συμπλήρωση 0-μονάδων από έτος 16ου γενεθλίου αν το PDF ξεκινά αργότερα
+    pdf_start_yr = int(df_parsed["Έτος"].min())
+    if pdf_start_yr > ref_start_yr:
+        zero_rows = pd.DataFrame({
+            "Έτος":     range(ref_start_yr, pdf_start_yr),
+            "Μονάδες":  0.0,
+            "Πρόβλεψη": False,
+        })
+        df_parsed = pd.concat([zero_rows, df_parsed], ignore_index=True)
+
+    df_full = build_projections(df_parsed, retire_date)
 
     st.markdown("**Ελέγξτε και διορθώστε τις μονάδες αν χρειαστεί.**  \n"
                 "*Τα έτη με ✓ στη στήλη Πρόβλεψη είναι εκτιμώμενα.*")
