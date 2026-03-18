@@ -255,7 +255,7 @@ if uploaded_pdf is not None:
     st.plotly_chart(fig, width='stretch')
 
     st.markdown(
-        f'<div class="note-text">⚠ Αξία μονάδας: €{REF_UNIT_VALUE:.2f} (2024). '
+        f'<div class="note-text">⚠ Αξία μονάδας: €{REF_UNIT_VALUE:.2f} (2026). '
         f'Η πραγματική σύνταξη το {retire_date.year} θα είναι υψηλότερη. '
         f'Κατώτατο όριο (χωρίς εξαρτώμενα): €411,20/μήνα. '
         f'Η αύξηση εξαρτωμένων εφαρμόζεται μόνο στο βασικό μέρος.</div>',
