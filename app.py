@@ -105,9 +105,11 @@ if uploaded_pdf is not None:
             "Μονάδες":  0.0,
             "Πρόβλεψη": False,
         })
-        df_parsed = pd.concat([zero_rows, df_parsed], ignore_index=True)
+        df_parsed_padded = pd.concat([zero_rows, df_parsed], ignore_index=True)
+    else:
+        df_parsed_padded = df_parsed.copy()
 
-    df_full = build_projections(df_parsed, retire_date)
+    df_full = build_projections(df_parsed_padded, retire_date)
 
     st.markdown("**Ελέγξτε και διορθώστε τις μονάδες αν χρειαστεί.**  \n"
                 "*Τα έτη με ✓ στη στήλη Πρόβλεψη είναι εκτιμώμενα.*")
@@ -213,7 +215,7 @@ if uploaded_pdf is not None:
 
     sc_results = []
     for sc in scenarios:
-        r = calculate_scenario(df_parsed, ref_start, retire_date, ret_age, sc["rate"])
+        r = calculate_scenario(df_parsed_padded, ref_start, retire_date, ret_age, sc["rate"])
         r["monthly_basic_dep"] = r["monthly_basic"] * (1 + dep_pct)
         r["final_total_dep"]   = (r["monthly_basic_dep"] + r["monthly_suppl"]) * (1 - base["reduction"])
         r["label"] = sc["label"]
