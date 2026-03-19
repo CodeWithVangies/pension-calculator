@@ -133,6 +133,11 @@ if uploaded_pdf is not None:
     df_full["Βασική"]  = df_full["Μονάδες"].clip(upper=1.0)
     df_full["Συμπλ."]  = (df_full["Μονάδες"] - 1.0).clip(lower=0)
 
+    # Βάση για σενάρια = ιστορικά έτη με τις αλλαγές του χρήστη
+    df_hist_edited = df_full[
+        df_full["Πρόβλεψη"] == False
+    ][["Έτος","Μονάδες","Πρόβλεψη"]].copy()
+
     # ════════════════════════════════════════════════════════════════════════
     # ΒΗΜΑ 3 — Αποτελέσματα
     # ════════════════════════════════════════════════════════════════════════
@@ -215,7 +220,7 @@ if uploaded_pdf is not None:
 
     sc_results = []
     for sc in scenarios:
-        r = calculate_scenario(df_parsed_padded, ref_start, retire_date, ret_age, sc["rate"])
+        r = calculate_scenario(df_hist_edited, ref_start, retire_date, ret_age, sc["rate"])
         r["monthly_basic_dep"] = r["monthly_basic"] * (1 + dep_pct)
         r["final_total_dep"]   = (r["monthly_basic_dep"] + r["monthly_suppl"]) * (1 - base["reduction"])
         r["label"] = sc["label"]
@@ -255,7 +260,7 @@ if uploaded_pdf is not None:
     st.plotly_chart(fig, width='stretch')
 
     st.markdown(
-        f'<div class="note-text">⚠ Αξία μονάδας: €{REF_UNIT_VALUE:.2f} (2026). '
+        f'<div class="note-text">⚠ Αξία μονάδας: €{REF_UNIT_VALUE:.2f} (2024). '
         f'Η πραγματική σύνταξη το {retire_date.year} θα είναι υψηλότερη. '
         f'Κατώτατο όριο (χωρίς εξαρτώμενα): €411,20/μήνα. '
         f'Η αύξηση εξαρτωμένων εφαρμόζεται μόνο στο βασικό μέρος.</div>',
